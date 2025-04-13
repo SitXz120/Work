@@ -12,6 +12,11 @@ local VirtualInputManager = game:GetService("VirtualInputManager")
 local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 
+-- ✅ CONFIG
+local FARM_PLACE_ID = 5233782396
+local TRADE_PLACE_ID = 14119723130
+local COINS_THRESHOLD = 1
+
 -- 🌍 Flags
 local isFarmServer = game.PlaceId == FARM_PLACE_ID
 local isTradeServer = game.PlaceId == TRADE_PLACE_ID
