@@ -1,0 +1,583 @@
+-- ⏳ เริ่มโหลดก่อนทำงาน
+task.wait(1)
+
+-- 📦 Services
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local TeleportService = game:GetService("TeleportService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local Workspace = game:GetService("Workspace")
+local LocalPlayer = Players.LocalPlayer
+
+-- 🌍 Flags
+local isFarmServer = game.PlaceId == FARM_PLACE_ID
+local isTradeServer = game.PlaceId == TRADE_PLACE_ID
+
+-- 🧱 GUI UI
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "BlackScreenUI"
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.IgnoreGuiInset = true
+screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+local background = Instance.new("Frame")
+background.Name = "BlackBackground"
+background.BackgroundColor3 = Color3.new(0, 0, 0)
+background.Size = UDim2.new(1, 0, 1, 0)
+background.Position = UDim2.new(0, 0, 0, 0)
+background.ZIndex = 99
+background.BorderSizePixel = 0
+background.BackgroundTransparency = 1
+background.Parent = screenGui
+
+local container = Instance.new("Frame")
+container.Name = "ContentContainer"
+container.Size = UDim2.new(1, 0, 1, 0)
+container.BackgroundTransparency = 1
+container.ZIndex = 100
+container.Parent = screenGui
+
+local layout = Instance.new("UIListLayout")
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+layout.VerticalAlignment = Enum.VerticalAlignment.Center
+layout.Padding = UDim.new(0, 10)
+layout.Parent = container
+
+local function createLabel(text, color, sizeScale)
+	local label = Instance.new("TextLabel")
+	label.Text = text
+	label.Font = Enum.Font.GothamSemibold
+	label.TextColor3 = color
+	label.TextScaled = true
+	label.BackgroundTransparency = 0.2
+	label.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+	label.Size = UDim2.new(0.5, 0, sizeScale or 0.08, 0)
+	label.ZIndex = 100
+	label.TextStrokeTransparency = 0.6
+	label.TextStrokeColor3 = Color3.new(0, 0, 0)
+	label.BorderSizePixel = 0
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0.15, 0)
+	corner.Parent = label
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Thickness = 1.5
+	stroke.Color = Color3.new(1, 1, 1)
+	stroke.Transparency = 0.9
+	stroke.Parent = label
+
+	label.Parent = container
+	return label
+end
+
+local shopName = createLabel("MADIWA", Color3.new(1, 1, 1), 0.12)
+local coinsLabel = createLabel("Coins: Loading...", Color3.fromRGB(255, 215, 0), 0.08)
+local statusLabel = createLabel("Status: Loading", Color3.fromRGB(200, 200, 200), 0.08)
+
+-- ✨ เริ่มต้นด้วย Fade-In
+TweenService:Create(background, TweenInfo.new(1), { BackgroundTransparency = 0 }):Play()
+
+-- 🔁 Toggle UI ด้วย LeftCtrl
+local isVisible = true
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.KeyCode == Enum.KeyCode.LeftControl then
+		isVisible = not isVisible
+		TweenService:Create(background, TweenInfo.new(0.5), {
+			BackgroundTransparency = isVisible and 0 or 1
+		}):Play()
+		container.Visible = isVisible
+	end
+end)
+
+-- 🧠 Helper: Safe Wait
+local function safeWait(parent, childName, timeout)
+	local success, result = pcall(function()
+		return parent:WaitForChild(childName, timeout or 5)
+	end)
+	return success and result or nil
+end
+
+-- 📈 แสดงสถานะ + coin
+local coinsValue
+if isFarmServer then
+	local data = safeWait(LocalPlayer:WaitForChild("PlayerGui"), "Data")
+	if data then coinsValue = data:FindFirstChild("Coins") end
+	statusLabel.Text = "Status: Farming"
+	statusLabel.TextColor3 = Color3.fromRGB(0, 255, 100)
+
+elseif isTradeServer then
+	local data = safeWait(LocalPlayer, "Data")
+	if data then coinsValue = data:FindFirstChild("Coins") end
+	statusLabel.Text = "Status: Trading"
+	statusLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
+
+else
+	statusLabel.Text = "Status: Unknown"
+	statusLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
+end
+
+if coinsValue then
+	coinsLabel.Text = "Coins: " .. coinsValue.Value
+	coinsValue:GetPropertyChangedSignal("Value"):Connect(function()
+		coinsLabel.Text = "Coins: " .. coinsValue.Value
+	end)
+else
+	coinsLabel.Text = "Coins: N/A"
+end
+-- 🤝 ระบบ AutoAccept เฉพาะเซิร์ฟเทรด
+if isTradeServer then
+	local processedTrades = {}
+	local ACCEPT_DISTANCE = 10
+
+	local function isInAutoTradeTarget(name)
+		for _, n in ipairs(_G.AutoTradeTarget or {}) do
+			if n == name then return true end
+		end
+		return false
+	end
+
+	local function getNearestRequestingPlayer()
+		local nearest, dist = nil, math.huge
+		local char = LocalPlayer.Character
+		if char and char:FindFirstChild("HumanoidRootPart") then
+			for _, p in pairs(Players:GetPlayers()) do
+				if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+					local d = (char.HumanoidRootPart.Position - p.Character.HumanoidRootPart.Position).Magnitude
+					local remote = p:FindFirstChild("Remotes") and p.Remotes:FindFirstChild("TradeRequestRemote")
+					if remote and d < dist and d <= ACCEPT_DISTANCE then
+						nearest, dist = p, d
+					end
+				end
+			end
+		end
+		return nearest
+	end
+
+	local function confirmTrade(target)
+		task.wait(3)
+		local remote = ReplicatedStorage.Remotes:FindFirstChild(target.Name .. "-" .. LocalPlayer.Name .. "TradeRemote")
+		if remote then remote:InvokeServer("AcceptTrade") end
+	end
+
+	local function addPetToTrade(target)
+		if processedTrades[target.Name] then return end
+		repeat task.wait() until LocalPlayer.PlayerGui:FindFirstChild("TradeGui") and LocalPlayer.PlayerGui.TradeGui.Enabled
+
+		local unlocks = LocalPlayer:WaitForChild("Data"):WaitForChild("Unlocks")
+		local pets = {}
+		for _, p in ipairs(unlocks:GetChildren()) do
+			if p:IsA("IntValue") and p.Value > 0 then table.insert(pets, p.Name) end
+		end
+		if #pets == 0 then return end
+
+		local args = {
+			"AddTradeItem",
+			{ Overwrite = true, ItemType = "Creatures", Name = pets[math.random(1, #pets)], Amount = 1 }
+		}
+		local remote = ReplicatedStorage.Remotes:FindFirstChild(target.Name .. "-" .. LocalPlayer.Name .. "TradeRemote")
+		if remote then
+			remote:InvokeServer(unpack(args))
+			processedTrades[target.Name] = true
+			confirmTrade(target)
+		end
+	end
+
+	local function autoAcceptTrade()
+		if not _G.EnableAutoAccept then return end
+
+		local nearest = getNearestRequestingPlayer()
+		if not nearest then return end
+		if isInAutoTradeTarget(nearest.Name) then return end
+
+		local remote = nearest.Remotes:FindFirstChild("TradeRequestRemote")
+		if remote then
+			remote:FireServer("AcceptRequest")
+			task.wait(1)
+			addPetToTrade(nearest)
+		end
+	end
+
+	RunService.Heartbeat:Connect(autoAcceptTrade)
+
+	Players.PlayerAdded:Connect(function(p) processedTrades[p.Name] = nil end)
+	Players.PlayerRemoving:Connect(function(p) processedTrades[p.Name] = nil end)
+
+	-- 🔁 ระบบ Auto Trade วนเทรดเป้าหมาย
+	local isRunningTrade = false
+
+	local function waitForTradeGui()
+		local gui = LocalPlayer.PlayerGui:FindFirstChild("TradeGui")
+		if not gui then return false end
+		while not gui.Enabled do task.wait(0.1) end
+		return true
+	end
+
+	local function teleportToPlayer(target)
+		local char = LocalPlayer.Character
+		if char and target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+			char.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, 3)
+		end
+	end
+
+    local function addPetAndCoinsToTrade(target)
+        local unlocks = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("Unlocks")
+        local coins = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("Coins")
+        if not unlocks or not coins then
+            warn("❌ ไม่พบ Unlocks หรือ Coins")
+            return
+        end
+
+        -- เลือกสัตว์จาก Unlocks
+        local pets = {}
+        for _, p in ipairs(unlocks:GetChildren()) do
+            if p:IsA("IntValue") and p.Value > 0 then
+                table.insert(pets, p.Name)
+            end
+        end
+
+        if #pets == 0 then
+            warn("⚠️ ไม่มีสัตว์ในคลัง")
+            return
+        end
+
+        local chosenPet = pets[math.random(1, #pets)]
+        local remoteName = LocalPlayer.Name .. "-" .. target.Name .. "TradeRemote"
+        local remote = ReplicatedStorage.Remotes:FindFirstChild(remoteName)
+        if not remote then
+            warn("❌ ไม่พบ Remote สำหรับเทรดกับ " .. target.Name)
+            return
+        end
+
+        -- ใส่สัตว์
+        local success = pcall(function()
+            remote:InvokeServer("AddTradeItem", {
+                Overwrite = true,
+                ItemType = "Creatures",
+                Name = chosenPet,
+                Amount = 1
+            })
+        end)
+        if not success then
+            warn("⚠️ ใส่สัตว์ไม่สำเร็จ")
+        end
+
+        -- ใส่เงิน Shooms (ถ้ามี)
+        if coins.Value > 0 then
+            pcall(function()
+                remote:InvokeServer("AddTradeItem", {
+                    Overwrite = false,
+                    ItemType = "Currency",
+                    Name = "Shooms",
+                    Amount = coins.Value
+                })
+            end)
+        end
+    end
+
+
+	local function addCoins(target)
+		local CoinsValue = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("Coins")
+		if not CoinsValue or CoinsValue.Value <= 0 then return end
+		local args = {
+			"AddTradeItem",
+			{ Overwrite = true, ItemType = "Currency", Name = "Shooms", Amount = CoinsValue.Value }
+		}
+		local remote = ReplicatedStorage.Remotes:FindFirstChild(LocalPlayer.Name .. "-" .. target.Name .. "TradeRemote")
+		if remote then remote:InvokeServer(unpack(args)) end
+	end
+
+	local function acceptTrade(target)
+		local remote = ReplicatedStorage.Remotes:FindFirstChild(LocalPlayer.Name .. "-" .. target.Name .. "TradeRemote")
+		if remote then remote:InvokeServer("AcceptTrade") end
+	end
+
+    local function autoTradeAllTargets()
+        if not _G.EnableAutoTrade or isRunningTrade then return end
+        isRunningTrade = true
+
+        for _, targetName in ipairs(_G.AutoTradeTarget or {}) do
+            local targetPlayer = Players:FindFirstChild(targetName)
+            if targetPlayer then
+                print("🚀 เทรดกับ: " .. targetPlayer.Name)
+                teleportToPlayer(targetPlayer)
+                task.wait(1)
+
+                local remote = LocalPlayer.Remotes and LocalPlayer.Remotes:FindFirstChild("TradeRequestRemote")
+                if remote then
+                    -- ✨ ส่ง 2 ครั้ง เพื่อซิงค์
+                    remote:FireServer("SendRequest", targetPlayer)
+                    task.wait(1)
+                    remote:FireServer("SendRequest", targetPlayer)
+
+                    if waitForTradeGui() then
+                        addCoins(targetPlayer)
+                        task.wait(1)
+                        addPetAndCoinsToTrade(targetPlayer)
+                        task.wait(1)
+                        acceptTrade(targetPlayer)
+                    end
+                end
+            else
+                warn("❌ ไม่พบผู้เล่น: " .. targetName)
+            end
+            task.wait(2)
+        end
+
+        isRunningTrade = false
+    end
+
+
+
+	task.spawn(function()
+		while true do
+			if _G.EnableAutoTrade then
+				autoTradeAllTargets()
+			end
+			task.wait(10)
+		end
+	end)
+end
+if isFarmServer then
+	local isTeleporting = false
+	local isFoodPlayerDead = false
+	local isDrinkPlayerDead = false
+
+	local moverFrameFood = LocalPlayer.PlayerGui.HUDGui.BottomFrame.Other.Hunger.ClipFrame.MoverFrame
+	local moverFrameDrink = LocalPlayer.PlayerGui.HUDGui.BottomFrame.Other.Thirst.ClipFrame.MoverFrame
+
+	local excludedFoods = { "Algae", "Sea Carcass", "Sea Ribs", "Seaweed Pods", "Fruit", "Grass", "Berries" }
+	local full, empty = 0, -1
+
+	-- ⚰ ตรวจสอบว่าผู้เล่นตายหรือไม่
+	local function isPlayerDead()
+		return Workspace.Characters:FindFirstChild(LocalPlayer.Name) == nil
+	end
+
+	-- 🍽 หาอาหารที่ใกล้ที่สุด
+	local function findClosestFood()
+		local foodFolder = Workspace.Interactions.Food
+		local char = Workspace.Characters:FindFirstChild(LocalPlayer.Name)
+		local closest, dist = nil, math.huge
+
+		if char and char:FindFirstChild("HumanoidRootPart") then
+			local pos = char.HumanoidRootPart.Position
+			for _, food in pairs(foodFolder:GetChildren()) do
+				if food.PrimaryPart and not table.find(excludedFoods, food.Name) then
+					local d = (pos - food.PrimaryPart.Position).Magnitude
+					if d < dist then
+						closest = food
+						dist = d
+					end
+				end
+			end
+		end
+		return closest
+	end
+
+	-- 🍖 กินอาหาร
+	local function eatFood()
+		if not _G.EnableAutoFood or isFoodPlayerDead then return end
+		local percent = math.clamp((moverFrameFood.Position.Y.Scale - empty) / (full - empty) * 100, 0, 100)
+		if percent >= 96 then return end
+
+		local food = findClosestFood()
+		local char = Workspace.Characters:FindFirstChild(LocalPlayer.Name)
+		if food and char and char:FindFirstChild("HumanoidRootPart") and not isTeleporting then
+			isTeleporting = true
+			local oldCFrame = char.HumanoidRootPart.CFrame
+			char.HumanoidRootPart.CFrame = food.PrimaryPart.CFrame + Vector3.new(0, 3, 0)
+
+			ReplicatedStorage.Remotes.Food:FireServer(food)
+			task.wait(2)
+
+			local newPercent = math.clamp((moverFrameFood.Position.Y.Scale - empty) / (full - empty) * 100, 0, 100)
+			if newPercent < 100 then eatFood() end
+
+			task.wait(1)
+			pcall(function() char.HumanoidRootPart.CFrame = oldCFrame end)
+			isTeleporting = false
+		end
+	end
+
+	-- 💧 ดื่มน้ำ
+	local function drinkWater()
+		if not _G.EnableAutoDrink or isDrinkPlayerDead then return end
+		local percent = math.clamp((moverFrameDrink.Position.Y.Scale - empty) / (full - empty) * 100, 0, 100)
+		if percent >= 98 then return end
+
+		local lake = Workspace.Interactions.Lakes:FindFirstChild("Lake")
+		if lake then
+			ReplicatedStorage.Remotes.DrinkRemote:FireServer(lake)
+		end
+	end
+
+	-- 🔍 ตรวจสอบความหิว / กระหายน้ำ
+	local function checkHunger()
+		if not _G.EnableAutoFood or isFoodPlayerDead then return end
+		local percent = math.clamp((moverFrameFood.Position.Y.Scale - empty) / (full - empty) * 100, 0, 100)
+		if percent < 96 then eatFood() end
+	end
+
+	local function checkThirst()
+		if not _G.EnableAutoDrink or isDrinkPlayerDead then return end
+		local percent = math.clamp((moverFrameDrink.Position.Y.Scale - empty) / (full - empty) * 100, 0, 100)
+		if percent < 98 then drinkWater() end
+	end
+
+	-- 🔄 ตรวจจับว่าผู้เล่นตายแล้วเกิดใหม่
+	RunService.Heartbeat:Connect(function()
+		if isPlayerDead() then
+			if not isFoodPlayerDead then isFoodPlayerDead = true end
+			if not isDrinkPlayerDead then isDrinkPlayerDead = true end
+		else
+			if isFoodPlayerDead then
+				isFoodPlayerDead = false
+				task.wait(3)
+				checkHunger()
+			end
+			if isDrinkPlayerDead then
+				isDrinkPlayerDead = false
+				task.wait(3)
+				checkThirst()
+			end
+		end
+	end)
+
+	-- 🔄 เรียกเช็คทุกเฟรม
+	RunService.Heartbeat:Connect(function()
+		checkHunger()
+		checkThirst()
+	end)
+
+	-- 🎯 ระบบ Auto Respawn
+	local function clickButton(button, adjustY)
+		if button and button:IsA("ImageButton") then
+			local absPos = button.AbsolutePosition
+			local absSize = button.AbsoluteSize
+			local clickX = absPos.X + (absSize.X / 2)
+			local clickY = absPos.Y + (absSize.Y * adjustY)
+			VirtualInputManager:SendMouseButtonEvent(clickX, clickY, 0, true, game, 0)
+			task.wait(0.1)
+			VirtualInputManager:SendMouseButtonEvent(clickX, clickY, 0, false, game, 0)
+		end
+	end
+
+	local function autoSpawn()
+		if not _G.EnableAutoRespawn then return end
+
+		local gui
+		repeat
+			gui = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("SaveSelectionGui")
+			task.wait(1)
+		until gui and gui:FindFirstChild("ContainerFrame")
+
+		local slotBtn = gui.ContainerFrame.AllSlotsFrame.SlotsFrame["1"].InnerFrame:FindFirstChildOfClass("ImageButton")
+		local playBtn = gui.ContainerFrame.AllSlotsFrame.SlotsFrame["1"].InnerFrame.CreatureFrame.ButtonsFrame.PlayButton:FindFirstChild("UpperLabel")
+
+		clickButton(slotBtn, 0.5)
+		task.wait(1)
+		clickButton(playBtn, 2.5)
+	end
+
+	local function autoRespawn()
+		if not _G.EnableAutoRespawn then return end
+
+		local deathGui = LocalPlayer.PlayerGui:FindFirstChild("DeathGui")
+		if not deathGui then return end
+
+		deathGui.ContainerFrame:GetPropertyChangedSignal("Visible"):Connect(function()
+			if deathGui.ContainerFrame.Visible then
+				print("⚰ ผู้เล่นตายแล้ว รอ Respawn...")
+
+				task.wait(10)
+				local returnBtn = deathGui.ContainerFrame.BottomFrame.ButtonsFrame.Return:FindFirstChild("UpperLabel")
+				clickButton(returnBtn, 1.5)
+
+				repeat task.wait(1) until not deathGui.ContainerFrame.Visible
+				task.wait(2)
+
+				local restart = ReplicatedStorage.Remotes:FindFirstChild("RestartSlotRemote")
+				if restart then
+					restart:InvokeServer("Slot1", false)
+				end
+
+				task.wait(2)
+				autoSpawn()
+			end
+		end)
+	end
+
+	-- เรียกใช้งานทันที
+	autoRespawn()
+	autoSpawn()
+end
+-- ✅ CONFIG
+local FARM_PLACE_ID = 5233782396
+local TRADE_PLACE_ID = 14119723130
+local COINS_THRESHOLD = _G.COINS_THRESHOLD or 1 -- เงินที่ต้องถึงก่อนย้ายไปเซิร์ฟเทรด
+
+-- 📦 Services
+local TeleportService = game:GetService("TeleportService")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+local isTeleporting = false
+
+-- 🧠 ฟังก์ชันหาค่า Coins ตามเซิร์ฟ
+local function getCoinsValue()
+	if game.PlaceId == FARM_PLACE_ID then
+		local guiData = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("Data")
+		return guiData and guiData:FindFirstChild("Coins")
+	elseif game.PlaceId == TRADE_PLACE_ID then
+		local data = LocalPlayer:FindFirstChild("Data")
+		return data and data:FindFirstChild("Coins")
+	end
+	return nil
+end
+
+-- 🧠 รอให้ TradeGui ปิดก่อนค่อยวาร์ปกลับ
+local function waitUntilTradeGuiClosed()
+	local gui = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("TradeGui")
+	if gui then
+		while gui.Enabled do
+			task.wait(0.5)
+		end
+	end
+end
+
+-- 🔄 เช็ค Coins ทุกเฟรมแบบ Real-Time
+RunService.Heartbeat:Connect(function()
+	if isTeleporting then return end
+
+	local coins = getCoinsValue()
+	if not coins then return end
+
+	-- 💸 ย้ายจาก Trade -> Farm เมื่อเงินหมด
+	if game.PlaceId == TRADE_PLACE_ID and coins.Value <= 0 then
+		isTeleporting = true
+		print("💸 Coins หมด! รอเทรดจบก่อนแล้วกลับฟาร์ม...")
+		_G.EnableAutoTrade = false
+
+		task.spawn(function()
+			waitUntilTradeGuiClosed()
+			task.wait(1)
+			print("🚜 กลับสู่เซิร์ฟฟาร์ม...")
+			TeleportService:Teleport(FARM_PLACE_ID, LocalPlayer)
+		end)
+	end
+
+	-- 💰 ย้ายจาก Farm -> Trade เมื่อเงินถึง
+	if game.PlaceId == FARM_PLACE_ID and coins.Value >= COINS_THRESHOLD then
+		isTeleporting = true
+		print("📦 Coins ถึงเป้า! กำลังย้ายไปเซิร์ฟเทรด...")
+		TeleportService:Teleport(TRADE_PLACE_ID, LocalPlayer)
+	end
+end)
