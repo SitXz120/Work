@@ -1,4 +1,4 @@
----------- [ ver1.2 ]
+---------- [ ver1.3 ]
 
 local httpService = game:GetService("HttpService")
 
@@ -226,17 +226,25 @@ local SaveManager = {} do
     
             task.defer(function()
                 local ok, err = pcall(function()
-                    -- ✅ สังเกต: ใช้ GetPropertyChangedSignal แบบ non-invasive
-                    option.ValueChangedConn = option.ValueChangedConn or option.Value:GetPropertyChangedSignal("Value"):Connect(function()
+                    -- 🔁 ถ้ามี Callback อยู่แล้ว เราไม่ทับ
+                    local originalCallback = rawget(option, "_callback")
+    
+                    option:OnChanged(function(value)
                         self:Save(configName)
+                        
+                        if typeof(originalCallback) == "function" then
+                            originalCallback(value)
+                        end
                     end)
                 end)
+    
                 if not ok then
-                    warn("[SaveManager] Failed to AutoSaveHook for", idx, err)
+                    warn("[SaveManager] AutoSaveHook failed for", idx, err)
                 end
             end)
         end
     end
+    
     
     
 
