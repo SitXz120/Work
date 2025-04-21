@@ -1,4 +1,4 @@
----------- [ ver1.1 ]
+---------- [ ver1.2 ]
 
 local httpService = game:GetService("HttpService")
 
@@ -224,19 +224,20 @@ local SaveManager = {} do
         for idx, option in pairs(self.Options) do
             if self.Ignore[idx] then continue end
     
-            if typeof(option.OnChanged) == "function" then
-                local existingCallback = option._callback -- ✅ เก็บ callback เดิมไว้ (Fluent ใช้ _callback)
-                
-                option:OnChanged(function(value)
-                    self:Save(configName)
-    
-                    if typeof(existingCallback) == "function" then
-                        existingCallback(value) -- 🔁 เรียก callback จริงด้วย
-                    end
+            task.defer(function()
+                local ok, err = pcall(function()
+                    -- ✅ สังเกต: ใช้ GetPropertyChangedSignal แบบ non-invasive
+                    option.ValueChangedConn = option.ValueChangedConn or option.Value:GetPropertyChangedSignal("Value"):Connect(function()
+                        self:Save(configName)
+                    end)
                 end)
-            end
+                if not ok then
+                    warn("[SaveManager] Failed to AutoSaveHook for", idx, err)
+                end
+            end)
         end
     end
+    
     
 
 	function SaveManager:BuildConfigSection(tab)
