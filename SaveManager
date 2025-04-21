@@ -1,4 +1,4 @@
----------- [ ver1.4 ]
+---------- [ ver1.5 ]
 
 local httpService = game:GetService("HttpService")
 
@@ -215,8 +215,7 @@ local SaveManager = {} do
             SubContent = string.format("Auto loaded config %q", name),
             Duration = 7
         })
-    end
-    
+    end  
 
     function SaveManager:AutoSaveHook(configName)
         if not configName or configName == "" then return end
@@ -226,14 +225,18 @@ local SaveManager = {} do
     
             task.defer(function()
                 local ok, err = pcall(function()
-                    -- 🔁 ถ้ามี Callback อยู่แล้ว เราไม่ทับ
-                    local originalCallback = rawget(option, "_callback")
+                    -- ❗เก็บ Callback เดิมก่อน
+                    local originalChanged = option.Changed
     
                     option:OnChanged(function(value)
+                        -- ✅ Save ทุกครั้งที่เปลี่ยนค่า
                         self:Save(configName)
-                        
-                        if type(originalCallback) == "function" then
-                            pcall(function() originalCallback(value) end)
+    
+                        -- 🔁 เรียก Callback เดิม ถ้ามี
+                        if typeof(originalChanged) == "function" then
+                            pcall(function()
+                                originalChanged(value)
+                            end)
                         end
                     end)
                 end)
@@ -244,9 +247,6 @@ local SaveManager = {} do
             end)
         end
     end
-    
-    
-    
 
 	function SaveManager:BuildConfigSection(tab)
 		assert(self.Library, "Must set SaveManager.Library")
