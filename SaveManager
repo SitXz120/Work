@@ -1,4 +1,4 @@
----------- [ ver1.3 ]
+---------- [ ver1.4 ]
 
 local httpService = game:GetService("HttpService")
 
@@ -232,8 +232,8 @@ local SaveManager = {} do
                     option:OnChanged(function(value)
                         self:Save(configName)
                         
-                        if typeof(originalCallback) == "function" then
-                            originalCallback(value)
+                        if type(originalCallback) == "function" then
+                            pcall(function() originalCallback(value) end)
                         end
                     end)
                 end)
