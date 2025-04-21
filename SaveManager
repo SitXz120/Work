@@ -1,3 +1,5 @@
+---------- [ ver1.1 ]
+
 local httpService = game:GetService("HttpService")
 
 local SaveManager = {} do
@@ -223,12 +225,19 @@ local SaveManager = {} do
             if self.Ignore[idx] then continue end
     
             if typeof(option.OnChanged) == "function" then
-                option:OnChanged(function()
+                local existingCallback = option._callback -- ✅ เก็บ callback เดิมไว้ (Fluent ใช้ _callback)
+                
+                option:OnChanged(function(value)
                     self:Save(configName)
+    
+                    if typeof(existingCallback) == "function" then
+                        existingCallback(value) -- 🔁 เรียก callback จริงด้วย
+                    end
                 end)
             end
         end
     end
+    
 
 	function SaveManager:BuildConfigSection(tab)
 		assert(self.Library, "Must set SaveManager.Library")
