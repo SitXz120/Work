@@ -1,4 +1,4 @@
----------- [ ver1.5 ]
+---------- [ ver1.6 ]
 
 local httpService = game:GetService("HttpService")
 
@@ -182,40 +182,35 @@ local SaveManager = {} do
         self.Options = library.Options
 	end
 
-    function SaveManager:LoadAutoloadConfig()
-        local playerName = game:GetService("Players").LocalPlayer.Name
-        local defaultConfig = playerName
-    
-        -- 🔍 ถ้ายังไม่มี autoload.txt ให้สร้างใหม่เป็นชื่อผู้เล่น
-        if not isfile(self.Folder .. "/settings/autoload.txt") then
-            writefile(self.Folder .. "/settings/autoload.txt", defaultConfig)
-        end
-    
-        local name = readfile(self.Folder .. "/settings/autoload.txt")
-    
-        -- ✅ ถ้ายังไม่มีไฟล์ config ของผู้เล่น สร้างใหม่เลย
-        local configPath = self.Folder .. "/settings/" .. name .. ".json"
-        if not isfile(configPath) then
-            self:Save(name)
-        end
-    
-        local success, err = self:Load(name)
-        if not success then
-            return self.Library:Notify({
-                Title = "Interface",
-                Content = "Config loader",
-                SubContent = "Failed to load autoload config: " .. err,
-                Duration = 7
-            })
-        end
-    
-        self.Library:Notify({
-            Title = "Interface",
-            Content = "Config loader",
-            SubContent = string.format("Auto loaded config %q", name),
-            Duration = 7
-        })
-    end  
+	function SaveManager:LoadAutoloadConfig()
+		local player = game:GetService("Players").LocalPlayer
+		local configName = player.Name .. "_" .. player.UserId  -- ✅ ชื่อ config = ชื่อผู้เล่น + userId
+	
+		local configPath = self.Folder .. "/settings/" .. configName .. ".json"
+	
+		-- 🧱 ถ้ายังไม่มีไฟล์ config ให้สร้างใหม่
+		if not isfile(configPath) then
+			self:Save(configName)
+		end
+	
+		-- 📥 โหลด config
+		local success, err = self:Load(configName)
+		if not success then
+			return self.Library:Notify({
+				Title = "Interface",
+				Content = "Config loader",
+				SubContent = "Failed to load config for player: " .. err,
+				Duration = 7
+			})
+		end
+	
+		self.Library:Notify({
+			Title = "Interface",
+			Content = "Config loader",
+			SubContent = string.format("Auto loaded config for player %q", configName),
+			Duration = 7
+		})
+	end
 
     function SaveManager:AutoSaveHook(configName)
         if not configName or configName == "" then return end
