@@ -229,8 +229,21 @@ local whitelistedBoxKeys = {
     Enum.KeyCode.Six,
     Enum.KeyCode.Seven,
     Enum.KeyCode.Eight,
-    Enum.KeyCode.Nine
+    Enum.KeyCode.Nine,
+
+    -- ✅ เพิ่ม Numpad keys
+    Enum.KeyCode.KeypadZero,
+    Enum.KeyCode.KeypadOne,
+    Enum.KeyCode.KeypadTwo,
+    Enum.KeyCode.KeypadThree,
+    Enum.KeyCode.KeypadFour,
+    Enum.KeyCode.KeypadFive,
+    Enum.KeyCode.KeypadSix,
+    Enum.KeyCode.KeypadSeven,
+    Enum.KeyCode.KeypadEight,
+    Enum.KeyCode.KeypadNine,
 }
+
 
 local keyNames = {
     [Enum.KeyCode.LeftControl] = 'LCTRL';
